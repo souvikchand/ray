@@ -26,6 +26,7 @@ from ray.data._internal.execution.streaming_executor_state import (
     select_operator_to_run,
     update_operator_states,
 )
+from ray.data._internal.logging import SessionFileHandler
 from ray.data._internal.logging import get_log_directory
 from ray.data._internal.progress_bar import ProgressBar
 from ray.data._internal.stats import DatasetStats, StatsManager, DatasetState
@@ -83,6 +84,14 @@ class StreamingExecutor(Executor, threading.Thread):
         self._num_errored_blocks = 0
 
         self._last_debug_log_time = 0
+        self._dataset_log_handler = SessionFileHandler(
+            filename=f"ray-data-{self._dataset_id}.log",
+        )
+        ray_data_handlers = logging.getLogger("ray.data").handlers
+        if ray_data_handlers and isinstance(ray_data_handlers[0], SessionFileHandler):
+            # use the same formatter as other ray.data file handlers
+            self._dataset_log_handler.setFormatter(ray_data_handlers[0].getFormatter())
+        logger.addHandler(self._dataset_log_handler)
 
         Executor.__init__(self, self._data_context.execution_options)
         thread_name = f"StreamingExecutor-{self._dataset_id}"
@@ -232,6 +241,7 @@ class StreamingExecutor(Executor, threading.Thread):
                 for callback in get_execution_callbacks(self._data_context):
                     callback.after_execution_fails(self, exception)
             self._autoscaler.on_executor_shutdown()
+            logger.removeHandler(self._dataset_log_handler)
 
     def run(self):
         """Run the control loop in a helper thread.
